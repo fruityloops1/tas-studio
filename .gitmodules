@@ -7,3 +7,9 @@
 [submodule "NintendoSDK"]
 	path = lib/NintendoSDK
 	url = https://github.com/fruityloops1/nnheaders
+[submodule "studio/lib/nlib"]
+	path = studio/lib/nlib
+	url = https://github.com/fruityloops1/nlib
+[submodule "studio/lib/raylib"]
+	path = studio/lib/raylib
+	url = https://github.com/raysan5/raylib
