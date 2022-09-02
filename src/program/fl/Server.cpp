@@ -1,18 +1,20 @@
 #pragma once
 
 #include "fl/Server.h"
+#include "al/util.hpp"
 #include "diag/assert.hpp"
 #include "fl/OutPacket.h"
+#include "fl/TasHeap.h"
 #include "lib.hpp"
 #include "nn/os.h"
 #include "nn/socket.h"
+#include <sead/basis/seadNew.h>
 
 namespace fl {
 
 void threadFunc(void* serverPtr)
 {
-    Server* server
-        = (Server*)serverPtr;
+    Server* server = (Server*)serverPtr;
 
     nn::TimeSpan wait = nn::TimeSpan::FromNanoSeconds(1000000);
     u8 buf[Server::sPacketBufferSize] { 0 };
@@ -38,14 +40,14 @@ Server::Server(u16 port, const ReceivePacketList& packets)
     mAddress.address.data = 0;
     mAddress.port = nn::socket::InetHtons(port);
 
-    mThreadStack = aligned_alloc(0x1000, sThreadStackSize);
+    mThreadStack = fl::getTasHeap()->alloc(sThreadStackSize, 0x1000);
 }
 
 Server::~Server()
 {
     nn::os::SuspendThread(&mRecvThread);
     nn::os::DestroyThread(&mRecvThread);
-    free(mThreadStack);
+    fl::getTasHeap()->free(mThreadStack);
 }
 
 void Server::start()

@@ -3,67 +3,64 @@
 #include "al/camera/CameraDirector.h"
 #include "al/camera/CameraPoser.h"
 #include "al/nerve/Nerve.h"
+#include "al/resource/Resource.h"
 #include "al/scene/Scene.h"
+#include "al/scene/SceneInitInfo.h"
+#include "al/sensor/HitSensorKeeper.h"
 #include "al/sequence/Sequence.h"
 #include "al/util.hpp"
 #include "fl/OutPacket.h"
 #include "fl/Server.h"
+#include "fl/TasHeap.h"
 #include "fl/TasHooks.h"
+#include "fl/TasPackets.h"
 #include "fl/TasServer.h"
 #include "game/HakoniwaSequence/HakoniwaSequence.h"
 #include "game/Player/PlayerActorHakoniwa.h"
 #include "game/StageScene/StageScene.h"
 #include "gfx/seadCamera.h"
+#include "heap/seadHeapMgr.h"
 #include "lib.hpp"
+#include "math/seadMatrix.h"
+#include "math/seadQuat.h"
 #include "math/seadVector.h"
+#include "nn/os.h"
 #include "nn/socket.h"
 #include "patch/code_patcher.hpp"
-
-class InitActor : public fl::OutPacket {
-    sead::Vector3f mPos;
-
-public:
-    InitActor(const sead::Vector3f& pos)
-        : OutPacket(1)
-        , mPos(pos)
-    {
-    }
-    size_t calcSize() override { return sizeof(sead::Vector3f); }
-    void construct(u8* out) override { *(sead::Vector3f*)out = mPos; }
-};
+#include <cstdlib>
+#include <cstring>
+#include <sead/container/seadPtrArray.h>
 
 void hakoniwaSequenceUpdateHook(HakoniwaSequence* dis)
 {
-    ((al::Sequence*)dis)->update();
+    dis->al::Sequence::update();
     al::Scene* scene = dis->getCurrentScene();
 
+    fl::tryCreateTasHeap();
     fl::TasServer::instance().tryStart();
 }
 
-class CameraInfo : public fl::OutPacket {
-    struct {
-        sead::Vector3f pos;
-        sead::Vector3f at;
-        sead::Vector3f up;
-        float fovy;
-    } mData;
+static sead::Vector3f getActorRotate(al::LiveActor* actor)
+{
+    const sead::Vector3f* rotate = al::getRotatePtr(actor);
+    const sead::Quatf* quat = al::getQuatPtr(actor);
 
-public:
-    CameraInfo(const sead::Vector3f& pos, const sead::Vector3f& at, const sead::Vector3f& up, float fovy)
-        : OutPacket(3)
-    {
-        mData.pos = pos;
-        mData.at = at;
-        mData.up = up;
-        mData.fovy = fovy;
+    if (rotate) {
+        return (*rotate) * -1;
+    } else if (quat) {
+        sead::Vector3f rotate { 0, 0, 0 };
+        sead::QuatCalcCommon<float>::calcRPY(rotate, *quat);
+        rotate *= -1;
+        rotate *= 180.0 / sead::numbers::pi;
+        return rotate;
     }
+    return { 0, 0, 0 };
+}
 
-    size_t calcSize() override { return sizeof(mData); }
-    void construct(u8* out) override
-    {
-        *(typeof(mData)*)out = mData;
-    }
-};
+static al::LiveActor** collisionActors = nullptr;
+static int collisionActorAmount = 0;
+static bool aliveDataBuffer[580] { 0 };
+static fl::packets::ActorUpdate::Entry actorUpdateEntryBuffer[32] {};
 
 void stageSceneControlHook()
 {
@@ -75,90 +72,119 @@ void stageSceneControlHook()
 
     sead::LookAtCamera* camera = al::getLookAtCamera(stageScene, 0);
     {
-        CameraInfo packet(camera->getPos(), camera->getAt(), camera->getUp(), 65);
+        fl::packets::CameraInfo packet(camera->getPos(), camera->getAt(), camera->getUp(), 65);
         fl::TasServer::instance().sendPacket(packet);
+    }
+
+    static int interval = 0;
+    interval++;
+    if (interval == 3) {
+        int aliveAmount = 0;
+        int actorUpdateIndex = 0;
+
+        for (int i = 0; i < collisionActorAmount; i++) {
+            al::LiveActor* actor = collisionActors[i];
+            bool process = al::isAlive(actor) && !al::isClipped(actor);
+            aliveDataBuffer[i] = process;
+            if (process) {
+                aliveAmount++;
+                actorUpdateEntryBuffer[actorUpdateIndex] = { u32(i), al::getTrans(actor), al::getScale(actor), getActorRotate(actor) };
+                actorUpdateIndex++;
+
+                if (actorUpdateIndex >= 32) {
+                    fl::packets::ActorUpdate packet(actorUpdateEntryBuffer, actorUpdateIndex);
+                    fl::TasServer::instance().sendPacket(packet);
+                    actorUpdateIndex = 0;
+                }
+            }
+        }
+
+        if (actorUpdateIndex != 0) {
+            fl::packets::ActorUpdate packet(actorUpdateEntryBuffer, actorUpdateIndex);
+            fl::TasServer::instance().sendPacket(packet);
+            actorUpdateIndex = 0;
+        }
+
+        fl::packets::ActorAliveStatus packet(aliveDataBuffer, collisionActorAmount);
+        fl::TasServer::instance().sendPacket(packet);
+
+        interval = 0;
     }
 
     __asm("mov x0, %[input]"
           : [input] "=r"(stageScene));
 }
 
-class PlayerInfo : public fl::OutPacket {
-
-    sead::Vector3f mTrans;
-
-public:
-    PlayerInfo(const sead::Vector3f& trans)
-        : OutPacket(2)
-        , mTrans(trans)
-    {
-    }
-    size_t calcSize() override { return sizeof(mTrans); }
-    void construct(u8* out) override { *(sead::Vector3f*)out = mTrans; }
-};
-
 bool playerControlHook(PlayerActorHakoniwa* player, const al::Nerve* nerve)
 {
-    PlayerInfo packet(al::getTrans(player));
+    fl::packets::PlayerInfo::Entry playerInfoSensorEntryBuffer[24];
+    int i = 0;
+    playerInfoSensorEntryBuffer[0].pos = al::getTrans(player);
+    playerInfoSensorEntryBuffer[0].radius = player->mPlayerCollider->getColliderRadius();
+    for (al::HitSensor& sensor : player->mHitSensorKeeper->mHitSensors) {
+        playerInfoSensorEntryBuffer[i + 1].pos = al::getSensorPos(&sensor);
+        playerInfoSensorEntryBuffer[i + 1].radius = al::getSensorRadius(&sensor);
+        i++;
+    }
+    fl::packets::PlayerInfo packet(al::getTrans(player), al::getTrans(player->mHackCap), playerInfoSensorEntryBuffer, i + 1);
     fl::TasServer::instance().sendPacket(packet);
     return al::isNerve(player, nerve);
 }
 
-class ActorInit : public fl::OutPacket {
-    struct {
-        uintptr_t actorPtr;
-        sead::Vector3f initTrans;
-        sead::Vector3f initScale;
-    } mFixed;
-    const char* mObjectName = nullptr;
+HOOK_DEFINE_TRAMPOLINE(ActorInitHook) { static void Callback(al::LiveActor * actor, al::Resource * resource, const sead::SafeString& kclName, al::HitSensor* collisionSensor, const sead::Matrix34f* mtx, const char* str); };
 
-public:
-    ActorInit(al::LiveActor* actor, const sead::Vector3f& trans, const sead::Vector3f& scale, const char* objectName)
-        : OutPacket(4)
-        , mObjectName(objectName)
-    {
-        mFixed.actorPtr = (uintptr_t)actor;
-        mFixed.initTrans = trans;
-        mFixed.initScale = scale;
-    }
-    size_t calcSize() override
-    {
-        return sizeof(mFixed) + (mObjectName == nullptr ? 0 : strlen(mObjectName)) + 1;
-    }
-    void construct(u8* out) override
-    {
-        *(typeof(mFixed)*)out = mFixed;
-        if (mObjectName != nullptr)
-            strcpy((char*)&out[sizeof(mFixed)], mObjectName);
-        else
-            out[sizeof(mFixed)] = '\0';
-    }
-};
-
-void actorInitHook(al::LiveActor* actor, const al::ActorInitInfo& info)
+void ActorInitHook::Callback(al::LiveActor* actor, al::Resource* resource, const sead::SafeString& kclName, al::HitSensor* collisionSensor, const sead::Matrix34f* mtx, const char* str)
 {
-    actor->init(info);
-    const char* name = nullptr;
-    if (!al::tryGetObjectName(&name, info))
-        name = nullptr;
-    ActorInit packet(actor, al::getTrans(actor), al::getScale(actor), name);
+    Orig(actor, resource, kclName, collisionSensor, mtx, str);
+    fl::packets::ActorInit packet(collisionActorAmount, al::getTrans(actor), al::getScale(actor), getActorRotate(actor), resource->getArchiveName(), kclName.cstr());
     fl::TasServer::instance().sendPacket(packet);
+    collisionActors[collisionActorAmount] = actor;
+    collisionActorAmount++;
 }
+
+HOOK_DEFINE_TRAMPOLINE(StageSceneInitHook) { static void Callback(StageScene * scene, const al::SceneInitInfo& info); };
+void StageSceneInitHook::Callback(StageScene* scene, const al::SceneInitInfo& info)
+{
+    if (collisionActors == nullptr) {
+        sead::ScopedCurrentHeapSetter setter(fl::getTasHeap());
+        collisionActors = new al::LiveActor*[580];
+    }
+
+    collisionActorAmount = 0;
+    fl::packets::SceneInit packet;
+    fl::TasServer::instance().sendPacket(packet);
+    Orig(scene, info);
+}
+
+PATCH_DEFINE_ASM_SIMPLE(Ret, "ret");
+PATCH_DEFINE_ASM_SIMPLE(WorldResourceLoader1, R"(
+    mov w0, #1
+    ret
+)");
 
 extern "C" void exl_main(void* x0, void* x1)
 {
     envSetOwnProcessHandle(exl::util::proc_handle::Get());
     exl::hook::Initialize();
 
-    exl::patch::CodePatcher(0x0050f04c).BranchLinkInst((void*)&hakoniwaSequenceUpdateHook);
-    exl::patch::CodePatcher(0x00420780).BranchLinkInst((void*)&playerControlHook);
-    exl::patch::CodePatcher(0x004cc360).BranchLinkInst((void*)&stageSceneControlHook);
+    using namespace exl::patch::inst;
+    using namespace exl::patch;
 
-    exl::patch::CodePatcher(0x008ddc38).BranchLinkInst((void*)&actorInitHook);
-    exl::patch::CodePatcher(0x008ddc9c).BranchLinkInst((void*)&actorInitHook);
-    exl::patch::CodePatcher(0x008ddb88).BranchInst((void*)&actorInitHook);
-    exl::patch::CodePatcher(0x008ddbd4).BranchLinkInst((void*)&actorInitHook);
-    exl::patch::CodePatcher(0x008dd994).BranchLinkInst((void*)&actorInitHook);
+    CodePatcher(0x0050f04c).BranchLinkInst((void*)&hakoniwaSequenceUpdateHook);
+    CodePatcher(0x00420780).BranchLinkInst((void*)&playerControlHook);
+    CodePatcher(0x004cc360).BranchLinkInst((void*)&stageSceneControlHook);
+
+    {
+        CodePatcher a(0x00514810);
+        for (int i = 0; i < 10; i++)
+            a.WriteInst(Nop());
+    }
+    for (uintptr_t offset : { 0x00514710, 0x00514700, 0x00514540, 0x00514050 })
+        Ret::InstallAtOffset(offset);
+    WorldResourceLoader1::InstallAtOffset(0x005146f8);
+
+    ActorInitHook::InstallAtOffset(0x008db2b4);
+    StageSceneInitHook::InstallAtOffset(0x004c861c);
 
     fl::initTasInputHooks();
 }

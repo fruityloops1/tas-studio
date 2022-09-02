@@ -112,6 +112,11 @@ sead::Vector2f* getRightStick(int);
 const sead::Vector3f& getTrans(al::LiveActor const*);
 
 sead::Vector3f* getTransPtr(al::LiveActor*);
+
+const sead::Vector3f& getRotate(const al::LiveActor* actor);
+sead::Vector3f* getRotatePtr(al::LiveActor* actor);
+sead::Quatf* getQuatPtr(al::LiveActor* actor);
+
 sead::Vector3f* getGravityPtr(const al::LiveActor*);
 
 const sead::Vector3f& getGravity(al::LiveActor const*);
@@ -399,5 +404,17 @@ void setDitherAnimClippingJudgeParam(al::LiveActor*, const char*);
 void initLinksActor(al::LiveActor*, const al::ActorInitInfo&, const char*, int);
 void invalidateClipping(al::LiveActor*);
 bool isAlive(const al::LiveActor*);
+bool isClipped(const al::LiveActor*);
+
+sead::Heap* getSequenceHeap();
+sead::Heap* getStationedHeap();
+sead::Heap* getSceneResourceHeap();
+sead::Heap* getSceneHeap();
+sead::Heap* getWorldResourceHeap();
+sead::Heap* findNamedHeap(const char*);
+
+float getSensorRadius(const al::HitSensor*);
+const sead::Vector3f& getSensorPos(const al::HitSensor*);
+float getColliderRadius(const al::LiveActor*);
 
 } // namespace al

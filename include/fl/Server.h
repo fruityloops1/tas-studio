@@ -10,8 +10,8 @@
 namespace fl {
 
 class Server {
-    constexpr static size_t sThreadStackSize = 0x15000;
-    constexpr static size_t sPacketBufferSize = 0x10000;
+    constexpr static size_t sThreadStackSize = 0x2000;
+    constexpr static size_t sPacketBufferSize = 0x1000;
 
     s32 mSocket = -1;
     sockaddr_in mAddress { 0 };

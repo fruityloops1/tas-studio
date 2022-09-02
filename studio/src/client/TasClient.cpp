@@ -17,7 +17,18 @@ void TasClient::receiveLog(u8* data, size_t len)
 
 void TasClient::receivePlayerInfo(u8* data, size_t len)
 {
-    Scene::instance().playerPos = (*(Vector3f*)data) / 100;
+    auto& scene = Scene::instance();
+    scene.playerPos = (*(Vector3f*)data) / 100;
+    scene.cappyPos = (*(Vector3f*)&data[sizeof(Vector3f)]) / 100;
+
+    u32 sensorAmount = (len - sizeof(Vector3f) * 2) / sizeof(Scene::SensorInfo);
+    Scene::SensorInfo* sensors = (Scene::SensorInfo*)&data[sizeof(Vector3f) * 2];
+    if (scene.playerSensors.empty())
+        for (int i = 0; i < sensorAmount; i++)
+            scene.playerSensors.push_back({ sensors[i].radius, sensors[i].pos / 100 });
+    else
+        for (int i = 0; i < sensorAmount; i++)
+            scene.playerSensors[i] = { sensors[i].radius, sensors[i].pos / 100 };
 }
 
 void TasClient::receiveCameraInfo(u8* data, size_t len)
@@ -30,55 +41,66 @@ void TasClient::receiveCameraInfo(u8* data, size_t len)
 
 void TasClient::receiveActorInit(u8* data, size_t len)
 {
-    auto& visual = Scene::instance();
+    auto& scene = Scene::instance();
 
     struct {
-        uintptr_t actorPtr;
+        u32 actorIndex;
         fl::Vector3f initTrans;
         fl::Vector3f initScale;
+        fl::Vector3f initRotate;
     } fixed = *(typeof(fixed)*)data;
 
-    const char* name = (const char*)&data[sizeof(fixed)];
-    visual.actors.push_back(new Scene::Actor(name));
-    Scene::Actor& actor = *visual.actors.back();
+    const char* archiveName = (const char*)&data[sizeof(fixed)];
+    const char* kclName = (const char*)&data[sizeof(fixed) + strlen(archiveName) + 1];
+    printf("%s.kcl\n", kclName);
+    scene.actors.push_back(new Scene::Actor(archiveName, kclName));
+    Scene::Actor& actor = *scene.actors.back();
     actor.trans = fixed.initTrans;
     actor.scale = fixed.initScale;
-    actor.unique = fixed.actorPtr;
+    actor.rotate = fixed.initRotate;
+    actor.index = fixed.actorIndex;
+    actor.kcl.initPending = true;
+}
 
-    std::string szsPath = nlib::util::format("res/ObjectData/%s.szs", actor.getName());
+void TasClient::receiveActorAliveStatus(u8* data, size_t len)
+{
+    u32 amount = *(u32*)data;
+    bool* bools = (bool*)&data[4];
 
-    if (std::filesystem::exists(szsPath)) {
-        std::vector<u8> szsData = nlib::util::readFile<u8>(szsPath);
-        std::vector<u8> sarcData = oead::yaz0::Decompress(szsData);
-        oead::Sarc sarc(sarcData);
-        for (const auto& file : sarc.GetFiles()) {
-            if (file.name.ends_with(".kcl")) {
-                KCL kcl(file.data);
+    auto& scene = Scene::instance();
+    for (Scene::Actor* actor : scene.actors) {
+        actor->isAlive = bools[actor->index];
+    }
+}
 
-                std::string objName = nlib::util::format("%s.obj", file.name.data());
-                std::string mtlName = nlib::util::format("%s.mtl", file.name.data());
-                std::string objStr = nlib::util::format("mtllib %s\n", mtlName.c_str());
-                objStr.append(kcl.toObj());
-                std::string mtlStr = kcl.toMtl();
-                std::vector<u8> obj(objStr.begin(), objStr.end());
-                std::vector<u8> mtl(mtlStr.begin(), mtlStr.end());
+void TasClient::receiveActorUpdate(u8* data, size_t len)
+{
+    u32 amount = *(u32*)data;
+    struct Entry {
+        u32 index;
+        fl::Vector3f pos;
+        fl::Vector3f scale;
+        fl::Vector3f rotate;
+    }* entries = (Entry*)&data[4];
 
-                nlib::util::writeFile(objName, std::span<const u8>(obj));
-                printf("%s\n", objName.c_str());
-                nlib::util::writeFile(mtlName, std::span<const u8>(mtl));
-                actor.kcl.model = LoadModel(objName.c_str());
+    auto& scene = Scene::instance();
 
-                for (int i = 0; i < actor.kcl.model.materialCount; i++) {
-                    actor.kcl.model.materials[i].maps->color = WHITE;
-                    actor.kcl.model.materials[i].shader = visual.checkerShader;
-                }
-
-                actor.kcl.valid = true;
-                // std::filesystem::remove(objName);
-                // std::filesystem::remove(mtlName);
-            }
+    for (int i = 0; i < amount; i++) {
+        Entry& entry = entries[i];
+        if (scene.actors.size() > entry.index) {
+            scene.actors[entry.index]->trans = entry.pos;
+            scene.actors[entry.index]->scale = entry.scale;
+            scene.actors[entry.index]->rotate = entry.rotate;
         }
     }
+}
+
+void TasClient::receiveSceneInit(u8* data, size_t len)
+{
+    auto& scene = Scene::instance();
+    for (Scene::Actor* actor : scene.actors)
+        delete actor;
+    scene.actors.clear();
 }
 
 } // namespace fl
