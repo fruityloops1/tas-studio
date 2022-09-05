@@ -192,5 +192,6 @@ extern "C" void exl_main(void* x0, void* x1)
 extern "C" NORETURN void exl_exception_entry()
 {
     /* TODO: exception handling */
+    __asm("svc #0x26");
     EXL_ABORT(0x420);
 }
