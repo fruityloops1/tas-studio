@@ -87,11 +87,26 @@ void TasClient::receiveActorUpdate(u8* data, size_t len)
 
     for (int i = 0; i < amount; i++) {
         Entry& entry = entries[i];
-        if (scene.actors.size() > entry.index) {
-            scene.actors[entry.index]->trans = entry.pos;
-            scene.actors[entry.index]->scale = entry.scale;
-            scene.actors[entry.index]->rotate = entry.rotate;
+        if (entry.index >= scene.actors.size()) {
+            printf("Error: index of entry to update out of bounds (%i / %li)\n", entry.index, scene.actors.size());
+            continue;
         }
+
+        Scene::Actor* actor = scene.actors[entry.index];
+        if((actor->trans != entry.pos) || (actor->scale != entry.scale) || (actor->rotate != entry.rotate))
+            printf("updating %s: ", actor->getName());
+        if(actor->trans != entry.pos)
+            printf("trans: (x: %f, y: %f, z: %f) to (x: %f, y: %f, z: %f), ", actor->trans.x, actor->trans.y, actor->trans.z, entry.pos.x, entry.pos.y, entry.pos.z);
+        if(actor->scale != entry.scale)
+            printf("scale: (x: %f, y: %f, z: %f) to (x: %f, y: %f, z: %f), ", actor->scale.x, actor->scale.y, actor->scale.z, entry.scale.x, entry.scale.y, entry.scale.z);
+        if(actor->rotate != entry.rotate)
+            printf("rotate: (x: %f, y: %f, z: %f) to (x: %f, y: %f, z: %f), ", actor->rotate.x, actor->rotate.y, actor->rotate.z, entry.rotate.x, entry.rotate.y, entry.rotate.z);
+        
+        if((actor->trans != entry.pos) || (actor->scale != entry.scale) || (actor->rotate != entry.rotate))
+            printf("\n");
+        actor->trans = entry.pos;
+        actor->scale = entry.scale;
+        actor->rotate = entry.rotate;
     }
 }
 
