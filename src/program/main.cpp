@@ -40,21 +40,24 @@ void hakoniwaSequenceUpdateHook(HakoniwaSequence* dis)
     fl::TasServer::instance().tryStart();
 }
 
-static sead::Vector3f getActorRotate(al::LiveActor* actor)
+static sead::Quatf getActorRotate(al::LiveActor* actor)
 {
-    const sead::Vector3f* rotate = al::getRotatePtr(actor);
     const sead::Quatf* quat = al::getQuatPtr(actor);
+    const sead::Vector3f* rotate = al::getRotatePtr(actor);
 
-    if (rotate) {
-        return (*rotate) * -1;
-    } else if (quat) {
-        sead::Vector3f rotate { 0, 0, 0 };
-        sead::QuatCalcCommon<float>::calcRPY(rotate, *quat);
-        rotate *= -1;
-        rotate *= 180.0 / sead::numbers::pi;
-        return rotate;
+    if (quat) {
+        bool quatContains = quat->x != 0 || quat->y != 0 || quat->z != 0 || quat->w != 1;
+        if(quatContains)
+            return *quat;
     }
-    return { 0, 0, 0 };
+    if (rotate && *rotate != sead::Vector3f::zero) {
+        sead::Vector3f rot = *rotate;
+        sead::Quatf q{};
+        rot *= sead::numbers::pi / 180.0;
+        q.setRPY(rotate->x, rotate->y, rotate->z);
+        return q;
+    }
+    return sead::Quatf::unit;
 }
 
 static al::LiveActor** collisionActors = nullptr;

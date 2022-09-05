@@ -122,7 +122,7 @@ int main() {
                 initActorKCL(actor);
             if (actor->kcl.valid) {
                 actor->kcl.model.transform =
-                    MatrixRotateXYZ({DEG2RAD * actor->rotate.x, DEG2RAD * actor->rotate.y, DEG2RAD * actor->rotate.z});
+                    QuaternionToMatrix({actor->rotate.x, actor->rotate.y, actor->rotate.z, actor->rotate.w});
                 DrawModel(actor->kcl.model, *(Vector3*)&pos, .01, WHITE);
             } else
                 DrawCube(*(Vector3*)&pos, .3, .3, .3, BLUE);

@@ -59,7 +59,7 @@ public:
         u32 index;
         sead::Vector3f pos;
         sead::Vector3f scale;
-        sead::Vector3f rotate;
+        sead::Quatf rotate;
     };
 
 private:
@@ -97,13 +97,13 @@ class ActorInit : public fl::OutPacket {
         u32 actorIndex;
         sead::Vector3f initTrans;
         sead::Vector3f initScale;
-        sead::Vector3f initRotate;
+        sead::Quatf initRotate;
     } mFixed;
     const char* mArchiveName = nullptr;
     const char* mKCLName = nullptr;
 
 public:
-    ActorInit(u32 actorIndex, const sead::Vector3f& trans, const sead::Vector3f& scale, const sead::Vector3f& rotate, const char* archiveName, const char* kclName)
+    ActorInit(u32 actorIndex, const sead::Vector3f& trans, const sead::Vector3f& scale, const sead::Quatf& rotate, const char* archiveName, const char* kclName)
         : OutPacket(4)
         , mFixed({ actorIndex,
               trans,

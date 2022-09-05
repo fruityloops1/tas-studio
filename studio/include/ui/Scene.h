@@ -36,7 +36,7 @@ struct Scene {
         u32 index;
         fl::Vector3f trans;
         fl::Vector3f scale;
-        fl::Vector3f rotate;
+        fl::Quatf rotate;
         bool isAlive = false;
 
         struct {

@@ -255,6 +255,10 @@ struct Vector3 {
 template <class T>
 struct Quat {
     T x, y, z, w;
+    inline bool operator==(const Quat& a) const
+    {
+        return x == a.x && y == a.y && z == a.z && w == a.w;
+    }
 };
 
 typedef Vector2<float> Vector2f;

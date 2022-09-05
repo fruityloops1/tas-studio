@@ -47,7 +47,7 @@ void TasClient::receiveActorInit(u8* data, size_t len)
         u32 actorIndex;
         fl::Vector3f initTrans;
         fl::Vector3f initScale;
-        fl::Vector3f initRotate;
+        fl::Quatf initRotate;
     } fixed = *(typeof(fixed)*)data;
 
     const char* archiveName = (const char*)&data[sizeof(fixed)];
@@ -80,7 +80,7 @@ void TasClient::receiveActorUpdate(u8* data, size_t len)
         u32 index;
         fl::Vector3f pos;
         fl::Vector3f scale;
-        fl::Vector3f rotate;
+        fl::Quatf rotate;
     }* entries = (Entry*)&data[4];
 
     auto& scene = Scene::instance();
