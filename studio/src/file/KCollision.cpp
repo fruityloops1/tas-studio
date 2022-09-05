@@ -24,6 +24,7 @@ KCL::KCL(std::span<const u8> data)
     for (int i = 0; i < modelCount; i++) {
         u32 modelOffset = reader.read<u32>();
         u32 o = reader.tell();
+        reader.seek(modelOffset);
         mModels.push_back(KCLModel(reader));
         reader.seek(o);
     }
