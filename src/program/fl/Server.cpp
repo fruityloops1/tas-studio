@@ -12,6 +12,8 @@
 
 namespace fl {
 
+constexpr u32 FLAG_MSG_DONTWAIT = 0x80;
+
 void threadFunc(void* serverPtr)
 {
     Server* server = (Server*)serverPtr;
@@ -22,7 +24,7 @@ void threadFunc(void* serverPtr)
     u32 clientSize = sizeof(server->mClientAddr);
 
     while (true) {
-        len = nn::socket::RecvFrom(server->mSocket, buf, Server::sPacketBufferSize, 0, &server->mClientAddr, &clientSize);
+        len = nn::socket::RecvFrom(server->mSocket, buf, Server::sPacketBufferSize, FLAG_MSG_DONTWAIT, &server->mClientAddr, &clientSize);
 
         server->handlePacket(buf, len);
         nn::os::YieldThread();
