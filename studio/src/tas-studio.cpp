@@ -13,52 +13,57 @@
 #include <filesystem>
 #include <vector>
 
-void initActorKCL(fl::Scene::Actor* actor)
-{
+void initActorKCL(fl::Scene::Actor* actor) {
     auto& scene = fl::Scene::instance();
     std::string szsPath = nlib::util::format("res/ObjectData/%s.szs", actor->getName());
 
-    if (std::filesystem::exists(szsPath)) {
-        std::vector<u8> szsData = nlib::util::readFile<u8>(szsPath);
-        std::vector<u8> sarcData = oead::yaz0::Decompress(szsData);
-        oead::Sarc sarc(sarcData);
-        const auto& file = sarc.GetFile(nlib::util::format("%s.kcl", actor->getKCLName()));
-        if (!file.has_value())
-            return;
+    if (!std::filesystem::exists(szsPath)) {
+        printf("File does not exist: %s\n", szsPath.c_str());
+        return;
+    }
 
-        try {
-            fl::KCL kcl(file->data);
-            std::string objName = nlib::util::format("%s.obj", file->name.data());
-            std::string mtlName = nlib::util::format("%s.mtl", file->name.data());
-            std::string objStr = nlib::util::format("mtllib %s\n", mtlName.c_str());
-            objStr.append(kcl.toObj());
-            std::string mtlStr = kcl.toMtl();
-            std::vector<u8> obj(objStr.begin(), objStr.end());
-            std::vector<u8> mtl(mtlStr.begin(), mtlStr.end());
+    std::vector<u8> szsData = nlib::util::readFile<u8>(szsPath);
+    std::vector<u8> sarcData = oead::yaz0::Decompress(szsData);
+    oead::Sarc sarc(sarcData);
+    const auto& file = sarc.GetFile(nlib::util::format("%s.kcl", actor->getKCLName()));
+    if (!file.has_value()) {
+        printf("File has no value: %s (%s)\n", actor->getKCLName(), szsPath.c_str());
+        return;
+    }
 
-            nlib::util::writeFile(objName, std::span<const u8>(obj));
-            nlib::util::writeFile(mtlName, std::span<const u8>(mtl));
-            actor->kcl.model = LoadModel(objName.c_str());
+    try {
+        fl::KCL kcl(file->data);
+        std::string objName = nlib::util::format("%s.obj", file->name.data());
+        std::string mtlName = nlib::util::format("%s.mtl", file->name.data());
+        std::string objStr = nlib::util::format("mtllib %s\n", mtlName.c_str());
+        objStr.append(kcl.toObj());
+        std::string mtlStr = kcl.toMtl();
+        std::vector<u8> obj(objStr.begin(), objStr.end());
+        std::vector<u8> mtl(mtlStr.begin(), mtlStr.end());
 
-            Color colors[] = { WHITE, RED, BLUE, GREEN, YELLOW, ORANGE, PINK, LIME, SKYBLUE, PURPLE, DARKPURPLE, BROWN, BLACK };
+        nlib::util::writeFile(objName, std::span<const u8>(obj));
+        nlib::util::writeFile(mtlName, std::span<const u8>(mtl));
+        actor->kcl.model = LoadModel(objName.c_str());
 
-            for (int i = 0; i < actor->kcl.model.materialCount; i++) {
-                actor->kcl.model.materials[i].maps->color = colors[i % 11];
-                actor->kcl.model.materials[i].shader = scene.checkerShader;
-            }
+        Color colors[] = {WHITE, RED,     BLUE,   GREEN,      YELLOW, ORANGE, PINK,
+                          LIME,  SKYBLUE, PURPLE, DARKPURPLE, BROWN,  BLACK};
 
-            actor->kcl.valid = true;
-            actor->kcl.initPending = false;
-            // std::filesystem::remove(objName);
-            // std::filesystem::remove(mtlName);
-        } catch (const nlib::Exception& ex) {
-            // myballs
+        for (int i = 0; i < actor->kcl.model.materialCount; i++) {
+            actor->kcl.model.materials[i].maps->color = colors[i % 11];
+            actor->kcl.model.materials[i].shader = scene.checkerShader;
         }
+
+        actor->kcl.valid = true;
+        actor->kcl.initPending = false;
+        // std::filesystem::remove(objName);
+        // std::filesystem::remove(mtlName);
+    } catch (const nlib::Exception& ex) {
+        // myballs
+        printf("Invalid kcl: %s.kcl (%s)\n", actor->getName(), actor->getKCLName());
     }
 }
 
-int main()
-{
+int main() {
     fl::TasClient client;
     client.connect("192.168.188.27", 7032);
 
@@ -116,7 +121,8 @@ int main()
             if (actor->kcl.initPending)
                 initActorKCL(actor);
             if (actor->kcl.valid) {
-                actor->kcl.model.transform = MatrixRotateXYZ({ DEG2RAD * actor->rotate.x, DEG2RAD * actor->rotate.y, DEG2RAD * actor->rotate.z });
+                actor->kcl.model.transform =
+                    MatrixRotateXYZ({DEG2RAD * actor->rotate.x, DEG2RAD * actor->rotate.y, DEG2RAD * actor->rotate.z});
                 DrawModel(actor->kcl.model, *(Vector3*)&pos, .01, WHITE);
             } else
                 DrawCube(*(Vector3*)&pos, .3, .3, .3, BLUE);
