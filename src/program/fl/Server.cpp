@@ -26,7 +26,8 @@ void threadFunc(void* serverPtr)
     while (true) {
         len = nn::socket::RecvFrom(server->mSocket, buf, Server::sPacketBufferSize, FLAG_MSG_DONTWAIT, &server->mClientAddr, &clientSize);
 
-        server->handlePacket(buf, len);
+        if(len != 0xffffffffl)
+            server->handlePacket(buf, len);
         nn::os::YieldThread();
         nn::os::SleepThread(wait);
     }
