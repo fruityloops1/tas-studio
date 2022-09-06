@@ -53,8 +53,9 @@ static sead::Quatf getActorRotate(al::LiveActor* actor)
     if (rotate && *rotate != sead::Vector3f::zero) {
         sead::Vector3f rot = *rotate;
         sead::Quatf q{};
-        rot *= sead::numbers::pi / 180.0;
-        q.setRPY(rotate->x, rotate->y, rotate->z);
+        rot *= sead::numbers::pi;
+        rot /= 180.0;
+        q.setRPY(rot.x, rot.y, rot.z);
         return q;
     }
     return sead::Quatf::unit;
